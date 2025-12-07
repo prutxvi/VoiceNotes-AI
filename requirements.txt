@@ -1,14 +1,5 @@
-# Core UI
-streamlit>=1.32.0
-
-# API & AI
-groq>=0.4.1
-
-# Environment Management
-python-dotenv>=1.0.0
-
-# Audio Input
-streamlit-mic-recorder>=0.0.9
-
-# Testing
-pytest>=7.4.0
+streamlit
+groq
+python-dotenv
+streamlit-mermaid
+fpdf

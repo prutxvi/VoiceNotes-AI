@@ -2,7 +2,6 @@ import streamlit as st
 import os
 from groq import Groq
 from dotenv import load_dotenv
-from streamlit_mic_recorder import mic_recorder
 import json
 from streamlit_mermaid import st_mermaid
 from fpdf import FPDF
@@ -15,26 +14,25 @@ st.set_page_config(page_title="VoiceNotes AI Pro", page_icon="🎙️", layout="
 # Initialize Groq Client
 api_key = os.getenv("GROQ_API_KEY")
 if not api_key:
-    st.error("❌ Groq API Key missing! Check your .env file.")
-    st.stop()
+    # Try to get from streamlit secrets (for deployment)
+    if "GROQ_API_KEY" in st.secrets:
+        api_key = st.secrets["GROQ_API_KEY"]
+    else:
+        st.error("❌ Groq API Key missing!")
+        st.stop()
 
 client = Groq(api_key=api_key)
 
 # 2. Helper Functions
-
 def sanitize_mermaid(mermaid_code):
-    """
-    Fixes common Mermaid syntax errors by removing special chars from node names.
-    """
     if not mermaid_code: return ""
-    # Remove markdown wrappers if present
     mermaid_code = mermaid_code.replace("``````", "").strip()
     return mermaid_code
 
-def transcribe_audio(audio_bytes):
+def transcribe_audio(audio_file):
     try:
         transcription = client.audio.transcriptions.create(
-            file=("recording.wav", audio_bytes), 
+            file=("recording.wav", audio_file), 
             model="whisper-large-v3", 
             response_format="json", 
             language="en"
@@ -47,7 +45,6 @@ def transcribe_audio(audio_bytes):
 def generate_study_material(text):
     system_prompt = """
     You are an expert study assistant. Output valid JSON.
-    
     For "mind_map": Create a simple MermaidJS flowchart (graph TD). 
     IMPORTANT: Do NOT use parentheses (), brackets [], or special characters inside node names. Use short, simple text labels.
     Example: A[Start] --> B[End]
@@ -75,7 +72,6 @@ def generate_study_material(text):
             response_format={"type": "json_object"}
         )
         
-        # Robust Extraction
         first_choice = completion.choices[0]
         if isinstance(first_choice, list): first_choice = first_choice[0]
         
@@ -127,13 +123,13 @@ col1, col2 = st.columns([1, 2])
 
 with col1:
     st.subheader("1. Record")
-    audio = mic_recorder(start_prompt="⏺️ Record", stop_prompt="⏹️ Stop", key='recorder', format="wav")
+    # ✅ NEW NATIVE AUDIO INPUT
+    audio_file = st.audio_input("Record your voice")
     
-    if audio:
-        st.audio(audio['bytes'])
+    if audio_file is not None:
         if st.button("⚡ Generate Magic"):
             with st.spinner("Processing..."):
-                text = transcribe_audio(audio['bytes'])
+                text = transcribe_audio(audio_file)
                 st.session_state.transcript = text
                 
             if text:
@@ -154,7 +150,7 @@ if st.session_state.study_data:
             st.info(data.get('summary'))
             for p in data.get('key_points', []): st.markdown(f"- {p}")
             
-        with tabs[1]: # Mind Map (Fixed)
+        with tabs[1]: # Mind Map
             st.markdown("### Concept Connections")
             raw_mermaid = data.get('mind_map', '')
             clean_mermaid = sanitize_mermaid(raw_mermaid)
@@ -170,17 +166,12 @@ if st.session_state.study_data:
                     with st.expander(f"Q: {card['front']}"):
                         st.write(f"**A: {card['back']}**")
                         
-        with tabs[3]: # Quiz (Fixed UI)
+        with tabs[3]: # Quiz
             st.markdown("### Quick Check")
             quiz = data.get('quiz', {})
-            
-            # Check if quiz is a dictionary (Correct) or string (Error case)
             if isinstance(quiz, dict) and 'options' in quiz:
                 st.write(f"**{quiz['question']}**")
-                
-                # Use a radio button for interaction
                 user_choice = st.radio("Choose one:", quiz['options'], index=None)
-                
                 if st.button("Check Answer"):
                     if user_choice == quiz['answer']:
                         st.balloons()
@@ -188,7 +179,7 @@ if st.session_state.study_data:
                     else:
                         st.error(f"❌ Incorrect. The answer is: {quiz['answer']}")
             else:
-                st.warning("Quiz data format issue. Try regenerating.")
+                st.warning("Quiz data format issue.")
                 
         with tabs[4]: # Export
             if st.button("📄 Download PDF"):
